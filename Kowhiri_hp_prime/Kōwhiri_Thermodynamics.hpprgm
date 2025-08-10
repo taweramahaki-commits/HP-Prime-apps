@@ -1,0 +1,307 @@
+EXPORT Koowhiri_ThermoImg();
+
+LOCAL ti_family:=1;
+LOCAL ti_from:="";
+LOCAL ti_to:="";
+LOCAL ti_value:=1;
+LOCAL ti_round:=6;
+LOCAL ti_sep:=0;
+
+LOCAL ti_families;
+LOCAL ti_names;
+
+EXPORT TI_Init()
+BEGIN
+  ti_families:={
+    {"Temperature",{"°C",1},{"K",1},{"°F",1}},
+    {"Pressure",{"Pa",1},{"kPa",1000},{"MPa",1000000},{"bar",100000},{"atm",101325},{"psi",6894.757293168},{"inHg",3386.389}},
+    {"Energy",{"J",1},{"kJ",1000},{"MJ",1000000},{"Wh",3600},{"kWh",3600000},{"cal",4.184},{"kcal",4184},{"BTU",1055.05585}},
+    {"HeatFlux",{"W/m^2",1},{"kW/m^2",1000}},
+    {"Cp",{"J/kg·K",1},{"kJ/kg·K",1000},{"BTU/lb·°F",4186.8}},
+    {"k",{"W/m·K",1},{"W/cm·K",100},{"BTU/hr·ft·°F",1.730735}},
+    {"μ",{"Pa·s",1},{"mPa·s",0.001},{"cP",0.001}},
+    {"ν",{"m^2/s",1},{"mm^2/s",1E-6},{"cSt",1E-6}},
+    {"MassFlow",{"kg/s",1},{"g/s",0.001},{"lb/s",0.45359237}},
+    {"VolFlow",{"m^3/s",1},{"L/s",0.001},{"L/min",0.001/60},{"ft^3/min",0.028316846592/60}}
+  };
+  ti_names:={};
+  LOCAL i;
+  FOR i FROM 1 TO SIZE(ti_families) DO
+    ti_names:=CONCAT(ti_names,{ti_families(i,1)});
+  END;
+END;
+
+TI_UnitsList(idx)
+BEGIN
+  LOCAL list:=ti_families(idx);
+  LOCAL units:={};
+  LOCAL i;
+  FOR i FROM 2 TO SIZE(list) DO
+    units:=CONCAT(units,{list(i,1)});
+  END;
+  RETURN units;
+END;
+
+TI_Factor(idx,u$)
+BEGIN
+  LOCAL list:=ti_families(idx);
+  LOCAL i;
+  FOR i FROM 2 TO SIZE(list) DO
+    IF list(i,1)==u$ THEN
+      RETURN list(i,2);
+    END;
+  END;
+  RETURN 0;
+END;
+
+TI_TempConvert(value,from$,to$)
+BEGIN
+  LOCAL ctemp;
+  IF from$=="K" THEN
+    ctemp:=value-273.15;
+  ELSEIF from$=="°C" THEN
+    ctemp:=value;
+  ELSEIF from$=="°F" THEN
+    ctemp:=(value-32)*(5/9);
+  END;
+  IF to$=="K" THEN
+    RETURN ctemp+273.15;
+  ELSEIF to$=="°C" THEN
+    RETURN ctemp;
+  ELSEIF to$=="°F" THEN
+    RETURN ctemp*(9/5)+32;
+  END;
+  RETURN value;
+END;
+
+TI_Convert(val,from$,to$,family)
+BEGIN
+  IF ti_families(family,1)=="Temperature" THEN
+    RETURN TI_TempConvert(val,from$,to$);
+  END;
+  LOCAL f_from:=TI_Factor(family,from$);
+  LOCAL f_to:=TI_Factor(family,to$);
+  IF f_from==0 OR f_to==0 THEN RETURN 0; END;
+  RETURN val * f_from / f_to;
+END;
+
+TI_RoundSig(x,n)
+BEGIN
+  IF x==0 THEN RETURN 0; END;
+  LOCAL e:=IP(LOG10(ABS(x)));
+  LOCAL fac:=10^(n-1-e);
+  RETURN ROUND(x*fac)/fac;
+END;
+
+TI_Format(x)
+BEGIN
+  LOCAL r:=TI_RoundSig(x,ti_round);
+  LOCAL s:=STRING(r);
+  IF ti_sep THEN
+    LOCAL pos:=POS(s,".");
+    LOCAL int$,dec$;
+    IF pos==0 THEN int$:=s; dec$:=""; ELSE int$:=LEFT(s,pos-1); dec$:=MID(s,pos); END;
+    LOCAL ex_pos:=POS(int$,"E");
+    LOCAL ex$;
+    IF ex_pos≠0 THEN ex$:=MID(int$,ex_pos); int$:=LEFT(int$,ex_pos-1); ELSE ex$:=""; END;
+    LOCAL out:="";
+    LOCAL count:=0;
+    LOCAL i;
+    FOR i FROM LENGTH(int$) DOWNTO 1 DO
+      out:=MID(int$,i,1)+out;
+      count:=count+1;
+      IF count MOD 3==0 AND i>1 THEN out:=","+out; END;
+    END;
+    s:=out+dec$+ex$;
+  END;
+  RETURN s;
+END;
+
+TI_SelfTest()
+BEGIN
+  LOCAL fails:="";
+  LOCAL r:=TI_Convert(100,"°C","K",1);
+  IF ABS(r-373.15)>1E-3 THEN fails:=fails+"Temp failed:"+STRING(r)+"\n"; END;
+  r:=TI_Convert(1,"atm","kPa",2);
+  IF ABS(r-101.325)>0.1 THEN fails:=fails+"Pressure failed:"+STRING(r)+"\n"; END;
+  LOCAL dpi:=300;
+  LOCAL w_px:=1920;
+  LOCAL h_px:=1080;
+  LOCAL w_mm:= (w_px/dpi)*25.4;
+  LOCAL h_mm:= (h_px/dpi)*25.4;
+  IF ABS(w_mm-162.56)>0.5 OR ABS(h_mm-91.44)>0.5 THEN fails:=fails+"DPI failed:"+STRING(w_mm)+" "+STRING(h_mm)+"\n"; END;
+  IF fails=="" THEN RETURN "PASS"; END;
+  RETURN fails;
+END;
+
+TI_Gas()
+BEGIN
+  LOCAL vars:={"Solve p","Solve V","Solve n","Solve T"};
+  LOCAL sel:=CHOOSE("Ideal gas PV=nRT",vars);
+  IF sel==0 THEN RETURN; END;
+  LOCAL p,V,n,T;
+  LOCAL R:=8.314462618;
+  IF sel==1 THEN
+    INPUT(n,"n (mol)");
+    INPUT(T,"T (K)");
+    INPUT(V,"V (m^3)");
+    p:=n*R*T/V;
+    MSGBOX("p = "+TI_Format(p)+" Pa");
+  ELSEIF sel==2 THEN
+    INPUT(p,"p (Pa)");
+    INPUT(n,"n (mol)");
+    INPUT(T,"T (K)");
+    V:=n*R*T/p;
+    MSGBOX("V = "+TI_Format(V)+" m^3");
+  ELSEIF sel==3 THEN
+    INPUT(p,"p (Pa)");
+    INPUT(V,"V (m^3)");
+    INPUT(T,"T (K)");
+    n:=p*V/(R*T);
+    MSGBOX("n = "+TI_Format(n)+" mol");
+  ELSEIF sel==4 THEN
+    INPUT(p,"p (Pa)");
+    INPUT(V,"V (m^3)");
+    INPUT(n,"n (mol)");
+    T:=p*V/(n*R);
+    MSGBOX("T = "+TI_Format(T)+" K");
+  END;
+END;
+
+TI_Heat()
+BEGIN
+  LOCAL opts:={"q = m*c*ΔT","q̇ = U*A*ΔT"};
+  LOCAL sel:=CHOOSE("Heat",opts);
+  IF sel==0 THEN RETURN; END;
+  IF sel==1 THEN
+    LOCAL m,c,dT,q;
+    INPUT(m,"m (kg)");
+    INPUT(c,"c (J/kg·K)");
+    INPUT(dT,"ΔT (K)");
+    q:=m*c*dT;
+    MSGBOX("q = "+TI_Format(q)+" J");
+  ELSEIF sel==2 THEN
+    LOCAL U,A,dT,qdot;
+    INPUT(U,"U (W/m^2·K)");
+    INPUT(A,"A (m^2)");
+    INPUT(dT,"ΔT (K)");
+    qdot:=U*A*dT;
+    MSGBOX("q̇ = "+TI_Format(qdot)+" W");
+  END;
+END;
+
+TI_DPI()
+BEGIN
+  LOCAL opts:={"Solve pixels","Solve size","Solve DPI"};
+  LOCAL sel:=CHOOSE("DPI/PPI",opts);
+  IF sel==0 THEN RETURN; END;
+  IF sel==1 THEN
+    LOCAL w_mm,h_mm,dpi,w_px,h_px;
+    INPUT(w_mm,"Width (mm)");
+    INPUT(h_mm,"Height (mm)");
+    INPUT(dpi,"DPI (dots per inch)");
+    w_px:= (w_mm/25.4)*dpi;
+    h_px:= (h_mm/25.4)*dpi;
+    MSGBOX("Pixels: "+TI_Format(w_px)+" x "+TI_Format(h_px));
+  ELSEIF sel==2 THEN
+    LOCAL w_px,h_px,dpi,w_mm,h_mm;
+    INPUT(w_px,"Width pixels");
+    INPUT(h_px,"Height pixels");
+    INPUT(dpi,"DPI");
+    w_mm:= (w_px/dpi)*25.4;
+    h_mm:= (h_px/dpi)*25.4;
+    MSGBOX("Size: "+TI_Format(w_mm)+" mm x "+TI_Format(h_mm)+" mm");
+  ELSEIF sel==3 THEN
+    LOCAL w_px,h_px,w_mm,h_mm,dpi;
+    INPUT(w_px,"Width pixels");
+    INPUT(h_px,"Height pixels");
+    INPUT(w_mm,"Width mm");
+    INPUT(h_mm,"Height mm");
+    dpi:= w_px / (w_mm/25.4);
+    MSGBOX("DPI = "+TI_Format(dpi));
+  END;
+END;
+
+TI_Aspect()
+BEGIN
+  LOCAL opts:={"16:9","4:3","3:2","Custom"};
+  LOCAL sel:=CHOOSE("Aspect ratio",opts);
+  IF sel==0 THEN RETURN; END;
+  LOCAL ratio;
+  IF sel==1 THEN ratio:=16/9;
+  ELSEIF sel==2 THEN ratio:=4/3;
+  ELSEIF sel==3 THEN ratio:=3/2;
+  ELSEIF sel==4 THEN
+    LOCAL w_ratio,h_ratio;
+    INPUT(w_ratio,"Width ratio");
+    INPUT(h_ratio,"Height ratio");
+    ratio:=w_ratio/h_ratio;
+  END;
+  LOCAL unknowns:={"Given width","Given height"};
+  LOCAL u:=CHOOSE("Solve",unknowns);
+  IF u==0 THEN RETURN; END;
+  IF u==1 THEN
+    LOCAL width;
+    INPUT(width,"Width");
+    LOCAL height:=width/ratio;
+    MSGBOX("Height = "+TI_Format(height));
+  ELSEIF u==2 THEN
+    LOCAL height;
+    INPUT(height,"Height");
+    LOCAL width:=height*ratio;
+    MSGBOX("Width = "+TI_Format(width));
+  END;
+END;
+
+TI_Options()
+BEGIN
+  LOCAL opts:={"Round 3","Round 6","Round full","Toggle sep","Self-test"};
+  LOCAL sel:=CHOOSE("Options",opts);
+  IF sel==1 THEN ti_round:=3;
+  ELSEIF sel==2 THEN ti_round:=6;
+  ELSEIF sel==3 THEN ti_round:=12;
+  ELSEIF sel==4 THEN ti_sep:=1-ti_sep;
+  ELSEIF sel==5 THEN MSGBOX(TI_SelfTest());
+  END;
+END;
+
+TI_Main()
+BEGIN
+  ti_family:=1;
+  LOCAL list:=TI_UnitsList(ti_family);
+  ti_from:=list(1);
+  ti_to:=list(2);
+  ti_value:=1;
+  WHILE 1 DO
+    PRINT();
+    PRINT("Kōwhiri Thermo+Img");
+    PRINT("Prop: "+ti_names(ti_family));
+    PRINT("From: "+ti_from+"  To: "+ti_to);
+    PRINT("Value: "+STRING(ti_value));
+    PRINT("Result: "+TI_Format(TI_Convert(ti_value,ti_from,ti_to,ti_family)));
+    PRINT("F1:Conv F2:Gas F3:Heat F4:DPI F5:Aspect F6:Opt");
+    LOCAL k:=WAIT(0);
+    IF k==1 THEN
+      ti_family:=CHOOSE("Property",ti_names,ti_family);
+      list:=TI_UnitsList(ti_family);
+      ti_from:=list(1);
+      ti_to:=list(2);
+    ELSEIF k==2 THEN
+      TI_Gas();
+    ELSEIF k==3 THEN
+      TI_Heat();
+    ELSEIF k==4 THEN
+      TI_DPI();
+    ELSEIF k==5 THEN
+      TI_Aspect();
+    ELSEIF k==6 THEN
+      TI_Options();
+    END;
+  END;
+END;
+
+EXPORT START()
+BEGIN
+  TI_Init();
+  TI_Main();
+END;

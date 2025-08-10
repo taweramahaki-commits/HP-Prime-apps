@@ -1,0 +1,181 @@
+EXPORT Koowhiri_Inverse();
+
+LOCAL inv_round:=6;
+LOCAL inv_sep:=0;
+
+IN_RoundSig(x,n)
+BEGIN
+  IF x==0 THEN RETURN 0; END;
+  LOCAL e:=IP(LOG10(ABS(x)));
+  LOCAL fac:=10^(n-1-e);
+  RETURN ROUND(x*fac)/fac;
+END;
+
+IN_Format(x)
+BEGIN
+  LOCAL r:=IN_RoundSig(x,inv_round);
+  LOCAL s:=STRING(r);
+  IF inv_sep THEN
+    LOCAL pos:=POS(s,".");
+    LOCAL int$,dec$;
+    IF pos==0 THEN int$:=s; dec$:=""; ELSE int$:=LEFT(s,pos-1); dec$:=MID(s,pos); END;
+    LOCAL ex_pos:=POS(int$,"E");
+    LOCAL ex$;
+    IF ex_pos≠0 THEN ex$:=MID(int$,ex_pos); int$:=LEFT(int$,ex_pos-1); ELSE ex$:=""; END;
+    LOCAL out:="";
+    LOCAL count:=0;
+    LOCAL i;
+    FOR i FROM LENGTH(int$) DOWNTO 1 DO
+      out:=MID(int$,i,1)+out;
+      count:=count+1;
+      IF count MOD 3==0 AND i>1 THEN out:=","+out; END;
+    END;
+    s:=out+dec$+ex$;
+  END;
+  RETURN s;
+END;
+
+IN_SelfTest()
+BEGIN
+  LOCAL fails:="";
+  LOCAL r:=1/0.25;
+  IF ABS(r-4)>1E-6 THEN fails:=fails+"Reciprocal failed:"+STRING(r)+"\n"; END;
+  LOCAL f:=CAS("factor(2*x^2-5*x-3)");
+  IF f≠"(2*x+1)*(x-3)" THEN fails:=fails+"Factor failed:"+STRING(f)+"\n"; END;
+  LOCAL sol:=CAS("solve(V=I*R,R)");
+  LOCAL sub:=CAS("subst("+STRING(sol(1))+",{V=12,I=3})");
+  IF ABS(sub-4)>1E-6 THEN fails:=fails+"Solve failed:"+STRING(sub)+"\n"; END;
+  IF fails=="" THEN RETURN "PASS"; END;
+  RETURN fails;
+END;
+
+IN_Reciprocal()
+BEGIN
+  LOCAL x;
+  INPUT(x,"Enter number");
+  MSGBOX("1/x = "+IN_Format(1/x));
+END;
+
+IN_Trig()
+BEGIN
+  LOCAL funcs:={"asin","acos","atan"};
+  LOCAL sel:=CHOOSE("Inverse trig",funcs);
+  IF sel==0 THEN RETURN; END;
+  LOCAL x,mode,res;
+  INPUT(x,"Enter value");
+  LOCAL modes:={"Degrees","Radians"};
+  LOCAL m:=CHOOSE("Mode",modes);
+  IF sel==1 THEN
+    res:=ASIN(x);
+  ELSEIF sel==2 THEN
+    res:=ACOS(x);
+  ELSEIF sel==3 THEN
+    res:=ATAN(x);
+  END;
+  IF m==1 THEN
+    res:=res*180/π;
+    MSGBOX(funcs(sel)+" = "+IN_Format(res)+"°");
+  ELSE
+    MSGBOX(funcs(sel)+" = "+IN_Format(res)+" rad");
+  END;
+END;
+
+IN_Matrix()
+BEGIN
+  LOCAL dims:={"2×2","3×3"};
+  LOCAL sel:=CHOOSE("Matrix dimension",dims);
+  IF sel==0 THEN RETURN; END;
+  IF sel==1 THEN
+    LOCAL a11,a12,a21,a22;
+    INPUT(a11,"a11"); INPUT(a12,"a12"); INPUT(a21,"a21"); INPUT(a22,"a22");
+    LOCAL det:=a11*a22 - a12*a21;
+    IF det==0 THEN MSGBOX("Matrix is singular"); RETURN; END;
+    LOCAL inv:=1/det * [[a22,-a12],[-a21,a11]];
+    MSGBOX("Inverse = "+STRING(inv));
+  ELSEIF sel==2 THEN
+    LOCAL a11,a12,a13,a21,a22,a23,a31,a32,a33;
+    INPUT(a11,"a11"); INPUT(a12,"a12"); INPUT(a13,"a13");
+    INPUT(a21,"a21"); INPUT(a22,"a22"); INPUT(a23,"a23");
+    INPUT(a31,"a31"); INPUT(a32,"a32"); INPUT(a33,"a33");
+    LOCAL M:=[[a11,a12,a13],[a21,a22,a23],[a31,a32,a33]];
+    LOCAL inv:=CAS("inv("+STRING(M)+")");
+    MSGBOX("Inverse = "+STRING(inv));
+  END;
+END;
+
+IN_Solve()
+BEGIN
+  LOCAL eqn,var;
+  INPUT(eqn,"Equation (e.g. V=I*R)");
+  INPUT(var,"Solve for");
+  LOCAL kv_count;
+  INPUT(kv_count,"Number of known variables");
+  LOCAL subst:="{";
+  LOCAL i;
+  FOR i FROM 1 TO kv_count DO
+    LOCAL kv;
+    INPUT(kv,"Enter known "+STRING(i)+" (format X=value)");
+    IF i>1 THEN subst:=subst+","; END;
+    subst:=subst+kv;
+  END;
+  subst:=subst+"}";
+  LOCAL sol:=CAS("solve("+eqn+","+var+")");
+  IF SIZE(sol)==0 THEN
+    MSGBOX("No solution");
+    RETURN;
+  END;
+  LOCAL expr:=sol(1);
+  LOCAL res:=CAS("subst("+STRING(expr)+","+subst+")");
+  MSGBOX(var+" = "+IN_Format(res));
+END;
+
+IN_Factor()
+BEGIN
+  LOCAL a,b,c;
+  INPUT(a,"a");
+  INPUT(b,"b");
+  INPUT(c,"c");
+  LOCAL f:=CAS("factor("+STRING(a)+"*x^2+"+STRING(b)+"*x+"+STRING(c)+")");
+  LOCAL sol:=CAS("solve("+STRING(a)+"*x^2+"+STRING(b)+"*x+"+STRING(c)+"=0,x)");
+  MSGBOX("Factor = "+STRING(f)+"\nRoots = "+STRING(sol));
+END;
+
+IN_Options()
+BEGIN
+  LOCAL opts:={"Round 3","Round 6","Round full","Toggle sep","Self-test"};
+  LOCAL sel:=CHOOSE("Options",opts);
+  IF sel==1 THEN inv_round:=3;
+  ELSEIF sel==2 THEN inv_round:=6;
+  ELSEIF sel==3 THEN inv_round:=12;
+  ELSEIF sel==4 THEN inv_sep:=1-inv_sep;
+  ELSEIF sel==5 THEN MSGBOX(IN_SelfTest());
+  END;
+END;
+
+IN_Main()
+BEGIN
+  WHILE 1 DO
+    PRINT();
+    PRINT("Kōwhiri Inverse");
+    PRINT("F1:Recip F2:Trig F3:Matrix F4:Solve F5:Factor F6:Opt");
+    LOCAL k:=WAIT(0);
+    IF k==1 THEN
+      IN_Reciprocal();
+    ELSEIF k==2 THEN
+      IN_Trig();
+    ELSEIF k==3 THEN
+      IN_Matrix();
+    ELSEIF k==4 THEN
+      IN_Solve();
+    ELSEIF k==5 THEN
+      IN_Factor();
+    ELSEIF k==6 THEN
+      IN_Options();
+    END;
+  END;
+END;
+
+EXPORT START()
+BEGIN
+  IN_Main();
+END;

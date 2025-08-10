@@ -1,0 +1,295 @@
+EXPORT Koowhiri_Electrical();
+
+LOCAL el_family:=1;
+LOCAL el_from:="V";
+LOCAL el_to:="mV";
+LOCAL el_value:=1;
+LOCAL el_round:=6;
+LOCAL el_sep:=0;
+
+LOCAL el_families;
+LOCAL el_names;
+
+EXPORT ELEC_Init()
+BEGIN
+  el_families:={
+    {"Voltage",{"μV",1E-6},{"mV",0.001},{"V",1},{"kV",1000}},
+    {"Current",{"μA",1E-6},{"mA",0.001},{"A",1}},
+    {"Resistance",{"mΩ",0.001},{"Ω",1},{"kΩ",1000},{"MΩ",1000000}},
+    {"Conductance",{"μS",1E-6},{"mS",0.001},{"S",1}},
+    {"Power",{"mW",0.001},{"W",1},{"kW",1000},{"MW",1000000},{"dBm",0}},
+    {"Energy",{"J",1},{"Wh",3600},{"kWh",3600000}},
+    {"Charge",{"μC",1E-6},{"mC",0.001},{"C",1},{"mAh",3.6},{"Ah",3600}},
+    {"Capacitance",{"pF",1E-12},{"nF",1E-9},{"μF",1E-6},{"mF",0.001},{"F",1}},
+    {"Inductance",{"μH",1E-6},{"mH",0.001},{"H",1}},
+    {"Frequency",{"Hz",1},{"kHz",1000},{"MHz",1000000},{"GHz",1000000000}},
+    {"Level",{"Vrms",1},{"Vpk",SQRT(2)},{"Vpp",2*SQRT(2)}}
+  };
+  el_names:={};
+  LOCAL i;
+  FOR i FROM 1 TO SIZE(el_families) DO
+    el_names:=CONCAT(el_names,{el_families(i,1)});
+  END;
+END;
+
+ELEC_UnitsList(idx)
+BEGIN
+  LOCAL list:=el_families(idx);
+  LOCAL units:={};
+  LOCAL i;
+  FOR i FROM 2 TO SIZE(list) DO
+    units:=CONCAT(units,{list(i,1)});
+  END;
+  RETURN units;
+END;
+
+ELEC_Factor(idx,u$)
+BEGIN
+  LOCAL list:=el_families(idx);
+  LOCAL i;
+  FOR i FROM 2 TO SIZE(list) DO
+    IF list(i,1)==u$ THEN
+      RETURN list(i,2);
+    END;
+  END;
+  RETURN 0;
+END;
+
+ELEC_Convert(val,from$,to$,family)
+BEGIN
+
+  IF from$=="dBm" THEN
+    val:=10^((val-30)/10);
+    from$:="W";
+  END;
+  IF to$=="dBm" THEN
+    LOCAL f:=ELEC_Factor(family,from$);
+    IF f==0 THEN RETURN 0; END;
+    LOCAL w:=val * f;
+    RETURN 10*LOG10(w*1000);
+  END;
+  LOCAL f_from:=ELEC_Factor(family,from$);
+  LOCAL f_to:=ELEC_Factor(family,to$);
+  IF f_from==0 OR f_to==0 THEN RETURN 0; END;
+
+  IF el_families(family,1)=="Level" THEN
+    LOCAL rms:=val * f_from;
+    RETURN rms / f_to;
+  END;
+  LOCAL base:=val * f_from;
+  RETURN base / f_to;
+END;
+
+ELEC_RoundSig(x,n)
+BEGIN
+  IF x==0 THEN RETURN 0; END;
+  LOCAL e:=IP(LOG10(ABS(x)));
+  LOCAL fac:=10^(n-1-e);
+  RETURN ROUND(x*fac)/fac;
+END;
+
+ELEC_Format(x)
+BEGIN
+  LOCAL r:=ELEC_RoundSig(x,el_round);
+  LOCAL s:=STRING(r);
+  IF el_sep THEN
+    LOCAL pos:=POS(s,".");
+    LOCAL int$,dec$;
+    IF pos==0 THEN int$:=s; dec$:=""; ELSE int$:=LEFT(s,pos-1); dec$:=MID(s,pos); END;
+    LOCAL ex_pos:=POS(int$,"E");
+    LOCAL ex$;
+    IF ex_pos≠0 THEN ex$:=MID(int$,ex_pos); int$:=LEFT(int$,ex_pos-1); ELSE ex$:=""; END;
+    LOCAL out:="";
+    LOCAL count:=0;
+    LOCAL i;
+    FOR i FROM LENGTH(int$) DOWNTO 1 DO
+      out:=MID(int$,i,1)+out;
+      count:=count+1;
+      IF count MOD 3 == 0 AND i>1 THEN out:=","+out; END;
+    END;
+    s:=out+dec$+ex$;
+  END;
+  RETURN s;
+END;
+
+ELEC_SelfTest()
+BEGIN
+  LOCAL fails:="";
+  LOCAL I:=12/4;
+  IF ABS(I-3)>1E-6 THEN fails:=fails+"Ohm's law I failed:"+STRING(I)+"\n"; END;
+  LOCAL P:=12*I;
+  IF ABS(P-36)>1E-6 THEN fails:=fails+"Power failed:"+STRING(P)+"\n"; END;
+  LOCAL tau:=10000*1E-6;
+  IF ABS(tau-0.01)>1E-6 THEN fails:=fails+"RC tau failed:"+STRING(tau)+"\n"; END;
+  LOCAL Xc:=1/(2*π*1000*100E-9);
+  IF ABS(Xc-1591.54943)>1 THEN fails:=fails+"Reactance failed:"+STRING(Xc)+"\n"; END;
+  LOCAL PmW:=10^(0/10);
+  IF ABS(PmW-1)>1E-6 THEN fails:=fails+"dBm failed:"+STRING(PmW)+"\n"; END;
+  IF fails=="" THEN RETURN "PASS"; END;
+  RETURN fails;
+END;
+
+ELEC_Ohm()
+BEGIN
+  LOCAL opts:={"Solve V","Solve I","Solve R"};
+  LOCAL sel:=CHOOSE("Ohm's law",opts);
+  IF sel==0 THEN RETURN; END;
+  LOCAL V,I,R;
+  IF sel==1 THEN
+    INPUT(I,"Current (A)");
+    INPUT(R,"Resistance (Ω)");
+    V:=I*R;
+    MSGBOX("V = "+ELEC_Format(V)+" V");
+  ELSEIF sel==2 THEN
+    INPUT(V,"Voltage (V)");
+    INPUT(R,"Resistance (Ω)");
+    I:=V/R;
+    MSGBOX("I = "+ELEC_Format(I)+" A");
+  ELSEIF sel==3 THEN
+    INPUT(V,"Voltage (V)");
+    INPUT(I,"Current (A)");
+    R:=V/I;
+    MSGBOX("R = "+ELEC_Format(R)+" Ω");
+  END;
+END;
+
+ELEC_Power()
+BEGIN
+  LOCAL opts:={"Solve P","Solve V","Solve I","Solve R"};
+  LOCAL sel:=CHOOSE("Power",opts);
+  LOCAL P,V,I,R;
+  IF sel==1 THEN
+    INPUT(V,"V (V)");
+    INPUT(I,"I (A)");
+    P:=V*I;
+    MSGBOX("P = "+ELEC_Format(P)+" W");
+  ELSEIF sel==2 THEN
+    INPUT(P,"P (W)");
+    INPUT(I,"I (A)");
+    V:=P/I;
+    MSGBOX("V = "+ELEC_Format(V)+" V");
+  ELSEIF sel==3 THEN
+    INPUT(P,"P (W)");
+    INPUT(V,"V (V)");
+    I:=P/V;
+    MSGBOX("I = "+ELEC_Format(I)+" A");
+  ELSEIF sel==4 THEN
+    INPUT(P,"P (W)");
+    INPUT(V,"V (V)");
+    R:=V^2/P;
+    MSGBOX("R = "+ELEC_Format(R)+" Ω");
+  END;
+END;
+
+ELEC_RC_RL()
+BEGIN
+  LOCAL opts:={"RC τ","RL τ"};
+  LOCAL sel:=CHOOSE("RC/RL",opts);
+  LOCAL R,C,L,tau;
+  IF sel==1 THEN
+    INPUT(R,"R (Ω)");
+    INPUT(C,"C (F)");
+    tau:=R*C;
+    MSGBOX("τ = "+ELEC_Format(tau)+" s (5τ = "+ELEC_Format(5*tau)+" s)");
+  ELSEIF sel==2 THEN
+    INPUT(R,"R (Ω)");
+    INPUT(L,"L (H)");
+    tau:=L/R;
+    MSGBOX("τ = "+ELEC_Format(tau)+" s");
+  END;
+END;
+
+ELEC_React()
+BEGIN
+  LOCAL opts:={"Reactance","dB"};
+  LOCAL sel:=CHOOSE("Reactance & dB",opts);
+  IF sel==1 THEN
+    LOCAL f,C,L,R,Xc,Xl,Z;
+    INPUT(f,"f (Hz)");
+    INPUT(C,"C (F, 0 if none)");
+    INPUT(L,"L (H, 0 if none)");
+    INPUT(R,"R (Ω, 0 if none)");
+    IF C≠0 THEN Xc:=1/(2*π*f*C); ELSE Xc:=0; END;
+    IF L≠0 THEN Xl:=2*π*f*L; ELSE Xl:=0; END;
+    Z:=√(R^2+(Xl-Xc)^2);
+    MSGBOX("Xc="+ELEC_Format(Xc)+" Ω\nXl="+ELEC_Format(Xl)+" Ω\nZ="+ELEC_Format(Z)+" Ω");
+  ELSEIF sel==2 THEN
+    LOCAL opts2:={"Power ratio","Voltage ratio","mW↔dBm"};
+    LOCAL sel2:=CHOOSE("dB",opts2);
+    IF sel2==1 THEN
+      LOCAL P1,P2,dB;
+      INPUT(P1,"P1 (W)");
+      INPUT(P2,"P2 (W)");
+      dB:=10*LOG10(P2/P1);
+      MSGBOX("dB = "+ELEC_Format(dB));
+    ELSEIF sel2==2 THEN
+      LOCAL V1,V2,dB;
+      INPUT(V1,"V1 (V)");
+      INPUT(V2,"V2 (V)");
+      dB:=20*LOG10(V2/V1);
+      MSGBOX("dB = "+ELEC_Format(dB));
+    ELSEIF sel2==3 THEN
+      LOCAL opts3:={"mW→dBm","dBm→mW"};
+      LOCAL sel3:=CHOOSE("mW↔dBm",opts3);
+      IF sel3==1 THEN
+        LOCAL mW;
+        INPUT(mW,"Power (mW)");
+        LOCAL dB:=10*LOG10(mW);
+        MSGBOX(ELEC_Format(mW)+" mW = "+ELEC_Format(dB)+" dBm");
+      ELSEIF sel3==2 THEN
+        LOCAL dB;
+        INPUT(dB,"dBm");
+        LOCAL mW:=10^(dB/10);
+        MSGBOX(ELEC_Format(dB)+" dBm = "+ELEC_Format(mW)+" mW");
+      END;
+    END;
+  END;
+END;
+
+ELEC_Options()
+BEGIN
+  LOCAL opts:={"Round 3","Round 6","Round full","Toggle sep","Self-test"};
+  LOCAL sel:=CHOOSE("Options",opts);
+  IF sel==1 THEN el_round:=3;
+  ELSEIF sel==2 THEN el_round:=6;
+  ELSEIF sel==3 THEN el_round:=12;
+  ELSEIF sel==4 THEN el_sep:=1-el_sep;
+  ELSEIF sel==5 THEN MSGBOX(ELEC_SelfTest());
+  END;
+END;
+
+ELEC_Main()
+BEGIN
+  WHILE 1 DO
+    PRINT();
+    PRINT("Kōwhiri Electrical");
+    PRINT("Family: "+el_names(el_family));
+    PRINT("From: "+el_from+"   To: "+el_to);
+    PRINT("Value: "+STRING(el_value));
+    PRINT("Result: "+ELEC_Format(ELEC_Convert(el_value,el_from,el_to,el_family)));
+    PRINT("F1:Conv F2:Ohm F3:Pwr F4:RC/RL F5:Reac F6:Opt");
+    LOCAL k:=WAIT(0);
+    IF k==1 THEN
+      el_family:=CHOOSE("Family",el_names,el_family);
+      LOCAL list:=ELEC_UnitsList(el_family);
+      el_from:=list(1);
+      el_to:=list(2);
+    ELSEIF k==2 THEN
+      ELEC_Ohm();
+    ELSEIF k==3 THEN
+      ELEC_Power();
+    ELSEIF k==4 THEN
+      ELEC_RC_RL();
+    ELSEIF k==5 THEN
+      ELEC_React();
+    ELSEIF k==6 THEN
+      ELEC_Options();
+    END;
+  END;
+END;
+
+EXPORT START()
+BEGIN
+  ELEC_Init();
+  ELEC_Main();
+END;

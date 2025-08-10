@@ -1,0 +1,269 @@
+EXPORT Koowhiri_Convert();
+
+LOCAL kc_cat:=1;
+LOCAL kc_value:=1;
+LOCAL kc_from:="m";
+LOCAL kc_to:="km";
+LOCAL kc_result:=0;
+LOCAL kc_round:=6;
+LOCAL kc_sep:=0;
+
+LOCAL kc_categories;
+LOCAL kc_units;
+LOCAL kc_base_data;
+LOCAL kc_prefixes;
+LOCAL kc_prefix_vals;
+
+EXPORT KC_Init()
+BEGIN
+  kc_prefixes:={"p","n","μ","u","m","c","d","da","h","k","M","G","T"};
+  kc_prefix_vals:={1E-12,1E-9,1E-6,1E-6,1E-3,1E-2,0.1,10,100,1000,1000000,1000000000,1000000000000};
+
+  kc_base_data:={
+    {"m",1},
+    {"g",0.001},
+    {"s",1},
+    {"Pa",1},
+    {"J",1},
+    {"W",1},
+    {"bar",100000},
+    {"Wh",3600},
+    {"cal",4.184},
+    {"kcal",4184},
+    {"BTU",1055.05585},
+    {"hp",745.699872},
+    {"in",0.0254},
+    {"ft",0.3048},
+    {"yd",0.9144},
+    {"mi",1609.344},
+    {"L",0.001},
+    {"l",0.001},
+    {"gal_US",0.003785411784},
+    {"gal_UK",0.00454609},
+    {"in^2",0.00064516},
+    {"ft^2",0.09290304},
+    {"yd^2",0.83612736},
+    {"mi^2",2589988.110336},
+    {"acre",4046.8564224},
+    {"ha",10000},
+    {"in^3",0.000016387064},
+    {"ft^3",0.028316846592},
+    {"cm^3",0.000001},
+    {"mm^3",1E-9},
+    {"m^3",1},
+    {"mm^2",0.000001},
+    {"cm^2",0.0001},
+    {"m^2",1}
+  };
+
+  kc_categories:={"Length","Mass","Time","Area","Volume","Speed","Energy","Power","Pressure","Temperature"};
+
+  kc_units:={
+    {"Length",{"nm","μm","mm","cm","m","km","in","ft","yd","mi"}},
+    {"Mass",{"μg","mg","g","kg","t","oz","lb"}},
+    {"Time",{"ms","s","min","h","day"}},
+    {"Area",{"mm^2","cm^2","m^2","ha","km^2","in^2","ft^2","yd^2","acre","mi^2"}},
+    {"Volume",{"mL","L","cm^3","m^3","in^3","ft^3","gal_US","gal_UK"}},
+    {"Speed",{"m/s","km/h","mph","ft/s","kn"}},
+    {"Energy",{"J","kJ","MJ","Wh","kWh","cal","kcal","BTU"}},
+    {"Power",{"mW","W","kW","MW","hp"}},
+    {"Pressure",{"Pa","kPa","MPa","bar","mbar","atm","psi","inHg"}},
+    {"Temperature",{"°C","K","°F"}}
+  };
+END;
+
+KC_FindBase(unit$)
+BEGIN
+  LOCAL i;
+  FOR i FROM 1 TO SIZE(kc_base_data) DO
+    IF kc_base_data(i,1)==unit$ THEN
+      RETURN kc_base_data(i,2);
+    END;
+  END;
+  RETURN 0;
+END;
+
+KC_ParseUnit(u$)
+BEGIN
+  LOCAL unit$:=u$;
+  LOCAL i;
+  IF LEFT(unit$,1)=="u" THEN
+    unit$:="μ"+MID(unit$,2);
+  END;
+  IF unit$=="°C" OR unit$=="°F" OR unit$=="K" THEN
+    RETURN {unit$,1};
+  END;
+  LOCAL f:=KC_FindBase(unit$);
+  IF f≠0 THEN
+    RETURN {unit$,f};
+  END;
+  FOR i FROM SIZE(kc_prefixes) DOWNTO 1 DO
+    LOCAL pref$:=kc_prefixes(i);
+    IF POS(unit$,pref$)==1 THEN
+      LOCAL base$:=MID(unit$,LEN(pref$)+1);
+      f:=KC_FindBase(base$);
+      IF f≠0 THEN
+        RETURN {base$,f*kc_prefix_vals(i)};
+      END;
+    END;
+  END;
+  RETURN {unit$,1};
+END;
+
+KC_TempConvert(value,from$,to$)
+BEGIN
+  LOCAL ctemp;
+  IF from$=="K" THEN
+    ctemp:=value-273.15;
+  ELSEIF from$=="°C" THEN
+    ctemp:=value;
+  ELSEIF from$=="°F" THEN
+    ctemp:=(value-32)*(5/9);
+  END;
+  IF to$=="K" THEN
+    RETURN ctemp+273.15;
+  ELSEIF to$=="°C" THEN
+    RETURN ctemp;
+  ELSEIF to$=="°F" THEN
+    RETURN ctemp*(9/5)+32;
+  END;
+  RETURN value;
+END;
+
+KC_Convert(value,from$,to$)
+BEGIN
+  LOCAL from_par:=KC_ParseUnit(from$);
+  LOCAL to_par:=KC_ParseUnit(to$);
+  LOCAL from_u:=from_par(1);
+  LOCAL from_f:=from_par(2);
+  LOCAL to_u:=to_par(1);
+  LOCAL to_f:=to_par(2);
+  IF from_u=="°C" OR from_u=="°F" OR from_u=="K" OR to_u=="°C" OR to_u=="°F" OR to_u=="K" THEN
+    RETURN KC_TempConvert(value,from_u,to_u);
+  END;
+  RETURN value * from_f / to_f;
+END;
+
+KC_RoundSig(x,n)
+BEGIN
+  IF x==0 THEN RETURN 0; END;
+  LOCAL e:=IP(LOG10(ABS(x)));
+  LOCAL fac:=10^(n-1-e);
+  RETURN ROUND(x*fac)/fac;
+END;
+
+KC_Format(x)
+BEGIN
+  LOCAL r:=KC_RoundSig(x,kc_round);
+  LOCAL s:=STRING(r);
+  IF kc_sep THEN
+    LOCAL pos:=POS(s,".");
+    LOCAL int$,dec$;
+    IF pos==0 THEN
+      int$:=s; dec$:="";
+    ELSE
+      int$:=LEFT(s,pos-1);
+      dec$:=MID(s,pos);
+    END;
+    LOCAL ex_pos:=POS(int$,"E");
+    LOCAL ex$;
+    IF ex_pos≠0 THEN
+      ex$:=MID(int$,ex_pos);
+      int$:=LEFT(int$,ex_pos-1);
+    ELSE
+      ex$:="";
+    END;
+    LOCAL out:="";
+    LOCAL count:=0;
+    LOCAL i;
+    FOR i FROM LENGTH(int$) DOWNTO 1 DO
+      out:=MID(int$,i,1)+out;
+      count:=count+1;
+      IF count MOD 3 == 0 AND i>1 THEN
+        out:=","+out;
+      END;
+    END;
+    s:=out+dec$+ex$;
+  END;
+  RETURN s;
+END;
+
+KC_SelfTest()
+BEGIN
+  LOCAL failures:="";
+  LOCAL r;
+  r:=KC_Convert(1,"km","m");
+  IF ABS(r-1000)>1E-6 THEN failures:=failures+"1 km→m failed:"+STRING(r)+"\n"; END;
+  r:=KC_Convert(1,"in","mm");
+  IF ABS(r-25.4)>1E-3 THEN failures:=failures+"1 in→mm failed:"+STRING(r)+"\n"; END;
+  r:=KC_Convert(1,"L","m^3");
+  IF ABS(r-0.001)>1E-6 THEN failures:=failures+"1 L→m^3 failed:"+STRING(r)+"\n"; END;
+  r:=KC_Convert(1,"atm","kPa");
+  IF ABS(r-101.325)>0.1 THEN failures:=failures+"1 atm→kPa failed:"+STRING(r)+"\n"; END;
+  r:=KC_Convert(100,"°C","K");
+  IF ABS(r-373.15)>1E-3 THEN failures:=failures+"100 °C→K failed:"+STRING(r)+"\n"; END;
+  IF failures=="" THEN RETURN "PASS"; END;
+  RETURN failures;
+END;
+
+KC_Options()
+BEGIN
+  LOCAL opts:={"Rounding 3","Rounding 6","Rounding full","Toggle separators","Self-test"};
+  LOCAL sel:=CHOOSE("Options",opts);
+  IF sel==1 THEN kc_round:=3;
+  ELSEIF sel==2 THEN kc_round:=6;
+  ELSEIF sel==3 THEN kc_round:=12;
+  ELSEIF sel==4 THEN kc_sep:=1-kc_sep;
+  ELSEIF sel==5 THEN MSGBOX(KC_SelfTest());
+  END;
+END;
+
+KC_Key(k)
+BEGIN
+
+  IF k==1 THEN
+    kc_cat:=CHOOSE("Category",kc_categories,kc_cat);
+    LOCAL list:=kc_units(kc_cat,2);
+    kc_from:=list(1);
+    kc_to:=list(2);
+  ELSEIF k==2 THEN
+    LOCAL list:=kc_units(kc_cat,2);
+    LOCAL sel:=CHOOSE("From Unit",list,POS(list,kc_from));
+    IF sel>0 THEN kc_from:=list(sel); END;
+  ELSEIF k==3 THEN
+    LOCAL list:=kc_units(kc_cat,2);
+    LOCAL sel:=CHOOSE("To Unit",list,POS(list,kc_to));
+    IF sel>0 THEN kc_to:=list(sel); END;
+  ELSEIF k==4 THEN
+    LOCAL temp:=kc_value;
+    INPUT(temp,"Enter value");
+    kc_value:=temp;
+  ELSEIF k==5 THEN
+    kc_result:=KC_Convert(kc_value,kc_from,kc_to);
+    MSGBOX("Result: "+KC_Format(kc_result)+" "+kc_to);
+  ELSEIF k==6 THEN
+    KC_Options();
+  END;
+END;
+
+KC_ShowHome()
+BEGIN
+  WHILE 1 DO
+    PRINT();
+    PRINT("Kōwhiri Convert");
+    PRINT("Category: "+kc_categories(kc_cat));
+    PRINT("From: "+kc_from+"   To: "+kc_to);
+    PRINT("Value: "+STRING(kc_value));
+    kc_result:=KC_Convert(kc_value,kc_from,kc_to);
+    PRINT("Result: "+KC_Format(kc_result));
+    PRINT("F1:Cat F2:From F3:To F4:Val F5:Conv F6:Opt");
+    LOCAL k:=WAIT(0);
+    KC_Key(k);
+  END;
+END;
+
+EXPORT START()
+BEGIN
+  KC_Init();
+  KC_ShowHome();
+END;

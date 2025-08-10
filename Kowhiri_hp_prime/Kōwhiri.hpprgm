@@ -1,0 +1,385 @@
+LOCAL MA_round:=6, MA_sep:=0;
+
+MA_RoundSig(x,n)
+BEGIN
+  IF x==0 THEN RETURN 0; END;
+  LOCAL e:=IP(LOG10(ABS(x)));
+  LOCAL fac:=10^(n-1-e);
+  RETURN ROUND(x*fac)/fac;
+END;
+
+MA_Format(x)
+BEGIN
+  LOCAL r:=MA_RoundSig(x,MA_round);
+  LOCAL s:=STRING(r);
+  IF MA_sep THEN
+    LOCAL pos:=POS(s,".");
+    LOCAL int$,dec$;
+    IF pos==0 THEN int$:=s; dec$:=""; ELSE int$:=LEFT(s,pos-1); dec$:=MID(s,pos); END;
+    LOCAL ex_pos:=POS(int$,"E");
+    LOCAL ex$;
+    IF ex_pos≠0 THEN ex$:=MID(int$,ex_pos); int$:=LEFT(int$,ex_pos-1); ELSE ex$:=""; END;
+    LOCAL out:="", i, count:=0;
+    FOR i FROM LENGTH(int$) DOWNTO 1 DO
+      out:=MID(int$,i,1)+out;
+      count:=count+1;
+      IF count MOD 3==0 AND i>1 THEN out:=","+out; END;
+    END;
+    s:=out+dec$+ex$;
+  END;
+  RETURN s;
+END;
+
+
+EXPORT MA_a, MA_b, MA_c;
+MA_QuadSteps()
+BEGIN
+  PRINT(); FREEZE;
+  PRINT("*** Quadratic Solver (steps) ***");
+  INPUT({MA_a,MA_b,MA_c}, "a*x^2 + b*x + c = 0",
+        {"a","b","c"},{"a≠0","",""});
+  LOCAL D:=MA_b^2-4*MA_a*MA_c;
+  PRINT("a="+STRING(MA_a)+", b="+STRING(MA_b)+", c="+STRING(MA_c));
+  PRINT("D = b^2 - 4ac = "+STRING(D));
+  IF D>0 THEN
+    LOCAL x1:=(-MA_b+√(D))/(2*MA_a);
+    LOCAL x2:=(-MA_b-√(D))/(2*MA_a);
+    PRINT("x1 = (-b + √D)/(2a) = "+STRING(x1));
+    PRINT("x2 = (-b - √D)/(2a) = "+STRING(x2));
+  ELSEIF D==0 THEN
+    LOCAL x:=(-MA_b)/(2*MA_a);
+    PRINT("One real root x = -b/(2a) = "+STRING(x));
+  ELSE
+    LOCAL r:= -MA_b/(2*MA_a);
+    LOCAL i:= √(-D)/(2*MA_a);
+    PRINT("Two complex roots:");
+    PRINT("x = "+STRING(r)+" ± "+STRING(i)+"*i");
+  END;
+  PRINT("*** Done ***");
+END;
+
+
+MA_Differentiate()
+BEGIN
+  LOCAL f$,x0;
+  INPUT({f$,x0},"Differentiate",
+        {"f(x)","x for f'(x)"},
+        {"e.g. x^3 - ln(x)","blank = skip eval"});
+  LOCAL fp:=CAS("diff("+f$+",x)");
+  PRINT(); PRINT("f'(x) = "+STRING(fp));
+  IF TYPE(x0) THEN
+    LOCAL val:=CAS("subst("+STRING(fp)+",{x="+STRING(x0)+"})");
+    PRINT("f'("+STRING(x0)+") = "+STRING(val));
+  END;
+END;
+
+MA_TurningPoints()
+BEGIN
+  LOCAL f$; INPUT(f$,"Turning points","f(x)","e.g. x^3 - ln(x)");
+  LOCAL fp:=CAS("diff("+f$+",x)");
+  LOCAL sols:=CAS("solve("+STRING(fp)+"=0,x)");
+  PRINT(); PRINT("f'(x) = "+STRING(fp));
+  PRINT("Solve f'(x)=0 → "+STRING(sols));
+  LOCAL fpp:=CAS("diff("+f$+",x,2)");
+  PRINT("f''(x) = "+STRING(fpp));
+  IF SIZE(sols)>0 THEN
+    LOCAL i;
+    FOR i FROM 1 TO SIZE(sols) DO
+      LOCAL xi:=sols(i);
+      LOCAL sgn:=CAS("subst("+STRING(fpp)+",{x="+STRING(xi)+"})");
+      LOCAL yi:=CAS("subst("+f$+",{x="+STRING(xi)+"})");
+      PRINT("x="+STRING(xi)+", y="+STRING(yi)+"  →  "+IFTE(sgn>0,"min","max"));
+    END;
+  END;
+END;
+
+MA_Integrate()
+BEGIN
+  LOCAL mode:=CHOOSE("Integration",
+    {"Indefinite ∫f(x)dx",
+     "Definite ∫_a^b f(x)dx",
+     "By parts (u,v')",
+     "Volume of revolution π∫(f(x))^2 dx"});
+  IF mode==0 THEN RETURN; END;
+  LOCAL f$,a,b,u$,vp$;
+  IF mode==1 THEN
+    INPUT(f$,"∫ f(x) dx","f(x)","e.g. -8*x^3 + 6/x^2");
+    PRINT(); PRINT("∫ "+f$+" dx = "+STRING(CAS("int("+f$+",x)")));
+  ELSEIF mode==2 THEN
+    INPUT({f$,a,b},"∫_a^b f(x) dx",{"f(x)","a","b"});
+    LOCAL F:=CAS("int("+f$+",x)");
+    LOCAL val:=CAS("subst("+STRING(F)+",{x="+STRING(b)+"}) - subst("+STRING(F)+",{x="+STRING(a)+"})");
+    PRINT(); PRINT("F(x) = "+STRING(F));
+    PRINT("∫_"+STRING(a)+"^"+STRING(b)+" = "+STRING(val));
+  ELSEIF mode==3 THEN
+    INPUT({u$,vp$},"By parts","{u(x) , v'(x)}");
+    LOCAL du:=CAS("diff("+u$+",x)");
+    LOCAL v :=CAS("int("+vp$+",x)");
+    PRINT(); PRINT("u = "+u$+",  v' = "+vp$);
+    PRINT("du = "+STRING(du)+",  v = "+STRING(v));
+    PRINT("∫u v' dx = u*v - ∫v du");
+    PRINT("= "+STRING(u$)+"*("+STRING(v)+") - ∫(("+STRING(v)+")*("+STRING(du)+")) dx");
+  ELSEIF mode==4 THEN
+    INPUT(f$,"π∫(f(x))^2 dx about x-axis","f(x)");
+    INPUT({a,b},"Bounds a,b",{"a","b"});
+    LOCAL expr:="pi*int(("+f$+")^2,x,"+STRING(a)+","+STRING(b)+")";
+    LOCAL val:=CAS(expr);
+    PRINT(); PRINT("V = π ∫_"+STRING(a)+"^"+STRING(b)+" (f(x))^2 dx = "+STRING(val));
+  END;
+END;
+
+
+MA_RelatedRates()
+BEGIN
+  LOCAL d, dthdt, th;
+  INPUT({d,dthdt,th},"Camera/pedestrian",
+        {"Distance d (m)","dθ/dt (rad/s)","θ (rad)"},
+        {"3","0.5","pi/6"});
+  LOCAL dydt:=d*(1/COS(th))^2 * dthdt;
+  MSGBOX("dy/dt = "+MA_Format(dydt)+" m/s");
+END;
+
+
+
+LOCAL KC_categories:={"Length","Mass","Time","Area","Volume","Speed","Energy","Power","Pressure","Temperature"};
+LOCAL KC_units:={
+  {"Length",{"nm","μm","mm","cm","m","km","in","ft","yd","mi"}},
+  {"Mass",{"μg","mg","g","kg","t","oz","lb"}},
+  {"Time",{"ms","s","min","h","day"}},
+  {"Area",{"mm^2","cm^2","m^2","ha","km^2","in^2","ft^2","yd^2","acre","mi^2"}},
+  {"Volume",{"mL","L","cm^3","m^3","in^3","ft^3","gal_US","gal_UK"}},
+  {"Speed",{"m/s","km/h","mph","ft/s","kn"}},
+  {"Energy",{"J","kJ","MJ","Wh","kWh","cal","kcal","BTU"}},
+  {"Power",{"mW","W","kW","MW","hp"}},
+  {"Pressure",{"Pa","kPa","MPa","bar","mbar","atm","psi","inHg"}},
+  {"Temperature",{"°C","K","°F"}}
+};
+
+LOCAL KC_base_data:={
+  {"m",1},{"g",0.001},{"s",1},{"Pa",1},{"J",1},{"W",1},
+  {"bar",100000},{"Wh",3600},{"cal",4.184},{"kcal",4184},
+  {"BTU",1055.05585},{"hp",745.699872},
+  {"in",0.0254},{"ft",0.3048},{"yd",0.9144},{"mi",1609.344},
+  {"L",0.001},{"l",0.001},{"gal_US",0.003785411784},{"gal_UK",0.00454609},
+  {"in^2",0.00064516},{"ft^2",0.09290304},{"yd^2",0.83612736},{"mi^2",2589988.110336},
+  {"acre",4046.8564224},{"ha",10000},
+  {"in^3",0.000016387064},{"ft^3",0.028316846592},{"cm^3",0.000001},{"mm^3",1E-9},{"m^3",1},
+  {"mm^2",0.000001},{"cm^2",0.0001},{"m^2",1}
+};
+LOCAL KC_prefixes:={"p","n","μ","u","m","c","d","da","h","k","M","G","T"};
+LOCAL KC_prefix_vals:={1E-12,1E-9,1E-6,1E-6,1E-3,1E-2,0.1,10,100,1000,1E6,1E9,1E12};
+
+KC_FindBase(unit$)
+BEGIN
+  LOCAL i;
+  FOR i FROM 1 TO SIZE(KC_base_data) DO
+    IF KC_base_data(i,1)==unit$ THEN RETURN KC_base_data(i,2); END;
+  END;
+  RETURN 0;
+END;
+
+KC_ParseUnit(u$)
+BEGIN
+  LOCAL unit$:=u$;
+  IF LEFT(unit$,1)=="u" THEN unit$:="μ"+MID(unit$,2); END;
+  IF unit$=="°C" OR unit$=="°F" OR unit$=="K" THEN RETURN {unit$,1}; END;
+  LOCAL f:=KC_FindBase(unit$);
+  IF f≠0 THEN RETURN {unit$,f}; END;
+  LOCAL i;
+  FOR i FROM SIZE(KC_prefixes) DOWNTO 1 DO
+    LOCAL pref$:=KC_prefixes(i);
+    IF POS(unit$,pref$)==1 THEN
+      LOCAL base$:=MID(unit$,LEN(pref$)+1);
+      f:=KC_FindBase(base$);
+      IF f≠0 THEN RETURN {base$,f*KC_prefix_vals(i)}; END;
+    END;
+  END;
+  RETURN {unit$,1};
+END;
+
+KC_TempConvert(value,from$,to$)
+BEGIN
+  LOCAL ctemp;
+  IF from$=="K" THEN ctemp:=value-273.15;
+  ELSEIF from$=="°C" THEN ctemp:=value;
+  ELSE ctemp:=(value-32)*(5/9); END;
+  IF to$=="K" THEN RETURN ctemp+273.15;
+  ELSEIF to$=="°C" THEN RETURN ctemp;
+  ELSE RETURN ctemp*(9/5)+32; END;
+END;
+
+KC_Convert(value,from$,to$)
+BEGIN
+  LOCAL from_par:=KC_ParseUnit(from$), to_par:=KC_ParseUnit(to$);
+  LOCAL from_u:=from_par(1), from_f:=from_par(2);
+  LOCAL to_u:=to_par(1), to_f:=to_par(2);
+  IF from_u=="°C" OR from_u=="°F" OR from_u=="K" OR to_u=="°C" OR to_u=="°F" OR to_u=="K" THEN
+    RETURN KC_TempConvert(value,from_u,to_u);
+  END;
+  RETURN value * from_f / to_f;
+END;
+
+MA_Convert_UI()
+BEGIN
+  LOCAL cat:=1, value:=1, from$, to$;
+  LOCAL list:=KC_units(cat,2); from$:=list(1); to$:=list(2);
+  WHILE 1 DO
+    PRINT(); PRINT("General Unit Converter");
+    PRINT("Category: "+KC_units(cat,1));
+    PRINT("From: "+from$+"   To: "+to$);
+    PRINT("Value: "+STRING(value));
+    PRINT("Result: "+MA_Format(KC_Convert(value,from$,to$)));
+    PRINT("F1:Cat F2:From F3:To F4:Val F5:Round F6:Back");
+    LOCAL k:=WAIT(0);
+    IF k==1 THEN cat:=CHOOSE("Category",KC_categories,cat); list:=KC_units(cat,2); from$:=list(1); to$:=list(2);
+    ELSEIF k==2 THEN from$:=CHOOSE("From unit",KC_units(cat,2),POS(KC_units(cat,2),from$));
+    ELSEIF k==3 THEN to$  :=CHOOSE("To unit",KC_units(cat,2),POS(KC_units(cat,2),to$));
+    ELSEIF k==4 THEN INPUT(value,"Value");
+    ELSEIF k==5 THEN MA_round:=CHOOSE("Sig figs",{3,6,12},2);
+    ELSEIF k==6 THEN BREAK; END;
+  END;
+END;
+
+
+ELEC_Ohm()
+BEGIN
+  LOCAL sel:=CHOOSE("Ohm's law",{"Solve V","Solve I","Solve R"});
+  LOCAL V,I,R;
+  IF sel==1 THEN INPUT(I,"I (A)"); INPUT(R,"R (Ω)"); V:=I*R; MSGBOX("V = "+MA_Format(V)+" V");
+  ELSEIF sel==2 THEN INPUT(V,"V (V)"); INPUT(R,"R (Ω)"); I:=V/R; MSGBOX("I = "+MA_Format(I)+" A");
+  ELSEIF sel==3 THEN INPUT(V,"V (V)"); INPUT(I,"I (A)"); R:=V/I; MSGBOX("R = "+MA_Format(R)+" Ω"); END;
+END;
+
+ELEC_React()
+BEGIN
+  LOCAL f,C,L,R,Xc,Xl,Z;
+  INPUT(f,"f (Hz)"); INPUT(C,"C (F, 0 if none)"); INPUT(L,"L (H, 0 if none)"); INPUT(R,"R (Ω, 0 if none)");
+  IF C≠0 THEN Xc:=1/(2*π*f*C); ELSE Xc:=0; END;
+  IF L≠0 THEN Xl:=2*π*f*L; ELSE Xl:=0; END;
+  Z:=√(R^2+(Xl-Xc)^2);
+  MSGBOX("Xc="+MA_Format(Xc)+" Ω\nXl="+MA_Format(Xl)+" Ω\nZ="+MA_Format(Z)+" Ω");
+END;
+
+MA_Electrical_UI()
+BEGIN
+  WHILE 1 DO
+    LOCAL sel:=CHOOSE("Electrical",{"Ohm's law","Reactance/Impedance","Back"});
+    IF sel==0 OR sel==3 THEN BREAK;
+    IF sel==1 THEN ELEC_Ohm(); END;
+    IF sel==2 THEN ELEC_React(); END;
+  END;
+END;
+
+
+TI_Gas()
+BEGIN
+  LOCAL sel:=CHOOSE("Ideal gas PV=nRT",{"Solve p","Solve V","Solve n","Solve T"});
+  LOCAL p,V,n,T, R:=8.314462618;
+  IF sel==1 THEN INPUT(n,"n (mol)"); INPUT(T,"T (K)"); INPUT(V,"V (m^3)"); p:=n*R*T/V; MSGBOX("p = "+MA_Format(p)+" Pa");
+  ELSEIF sel==2 THEN INPUT(p,"p (Pa)"); INPUT(n,"n (mol)"); INPUT(T,"T (K)"); V:=n*R*T/p; MSGBOX("V = "+MA_Format(V)+" m^3");
+  ELSEIF sel==3 THEN INPUT(p,"p (Pa)"); INPUT(V,"V (m^3)"); INPUT(T,"T (K)"); n:=p*V/(R*T); MSGBOX("n = "+MA_Format(n)+" mol");
+  ELSEIF sel==4 THEN INPUT(p,"p (Pa)"); INPUT(V,"V (m^3)"); INPUT(n,"n (mol)"); T:=p*V/(n*R); MSGBOX("T = "+MA_Format(T)+" K"); END;
+END;
+
+TI_Heat()
+BEGIN
+  LOCAL sel:=CHOOSE("Heat",{ "q = m*c*ΔT", "q̇ = U*A*ΔT"});
+  IF sel==1 THEN LOCAL m,c,dT,q; INPUT(m,"m (kg)"); INPUT(c,"c (J/kg·K)"); INPUT(dT,"ΔT (K)"); q:=m*c*dT; MSGBOX("q = "+MA_Format(q)+" J");
+  ELSEIF sel==2 THEN LOCAL U,A,dT,qdot; INPUT(U,"U (W/m^2·K)"); INPUT(A,"A (m^2)"); INPUT(dT,"ΔT (K)"); qdot:=U*A*dT; MSGBOX("q̇ = "+MA_Format(qdot)+" W"); END;
+END;
+
+MA_Thermo_UI()
+BEGIN
+  WHILE 1 DO
+    LOCAL sel:=CHOOSE("Thermodynamics",{"Ideal Gas","Heat","Back"});
+    IF sel==0 OR sel==3 THEN BREAK;
+    IF sel==1 THEN TI_Gas(); END;
+    IF sel==2 THEN TI_Heat(); END;
+  END;
+END;
+
+
+MP_Axial()
+BEGIN
+  LOCAL F,L,A,E,delta;
+  INPUT(F,"Force N"); INPUT(L,"Length m"); INPUT(A,"Area m^2"); INPUT(E,"Modulus Pa");
+  delta:=F*L/(A*E);
+  MSGBOX("δ = "+MA_Format(delta)+" m");
+END;
+
+MP_Bending()
+BEGIN
+  LOCAL sel:=CHOOSE("Section",{"Rectangular","Circular"});
+  IF sel==0 THEN RETURN; END;
+  LOCAL M,b,h,d,c,I,σ;
+  INPUT(M,"Moment (N·m)");
+  IF sel==1 THEN INPUT(b,"Width (m)"); INPUT(h,"Height (m)"); c:=h/2; I:=b*h^3/12;
+  ELSE INPUT(d,"Diameter (m)"); c:=d/2; I:=π*d^4/64; END;
+  σ:=M*c/I; MSGBOX("σ = "+MA_Format(σ)+" Pa");
+END;
+
+MA_Mechanical_UI()
+BEGIN
+  WHILE 1 DO
+    LOCAL sel:=CHOOSE("Mechanical",{"Axial deflection","Bending stress","Back"});
+    IF sel==0 OR sel==3 THEN BREAK;
+    IF sel==1 THEN MP_Axial(); END;
+    IF sel==2 THEN MP_Bending(); END;
+  END;
+END;
+
+
+MA_MainMath()
+BEGIN
+  WHILE 1 DO
+    LOCAL sel:=CHOOSE("Kōwhiri – Math",
+      {"Algebra: Quadratic (steps)",
+       "Differentiation",
+       "Turning points + 2nd deriv test",
+       "Integration suite",
+       "Related rates (camera)",
+       "Back"});
+    IF sel==0 OR sel==6 THEN BREAK; END;
+    IF sel==1 THEN MA_QuadSteps(); END;
+    IF sel==2 THEN MA_Differentiate(); END;
+    IF sel==3 THEN MA_TurningPoints(); END;
+    IF sel==4 THEN MA_Integrate(); END;
+    IF sel==5 THEN MA_RelatedRates(); END;
+  END;
+END;
+
+MA_MainEng()
+BEGIN
+  WHILE 1 DO
+    LOCAL sel:=CHOOSE("Kōwhiri – Engineering",
+      {"General unit converter",
+       "Electrical",
+       "Thermodynamics",
+       "Mechanical",
+       "Back"});
+    IF sel==0 OR sel==5 THEN BREAK; END;
+    IF sel==1 THEN MA_Convert_UI(); END;
+    IF sel==2 THEN MA_Electrical_UI(); END;
+    IF sel==3 THEN MA_Thermo_UI(); END;
+    IF sel==4 THEN MA_Mechanical_UI(); END;
+  END;
+END;
+
+
+EXPORT Kōwhiri()
+BEGIN
+  WHILE 1 DO
+    LOCAL sel:=CHOOSE("Kōwhiri – Unified",
+      {"Math tools",
+       "Engineering tools",
+       "Options",
+       "Quit"});
+    IF sel==0 OR sel==4 THEN BREAK; END;
+    IF sel==1 THEN MA_MainMath(); END;
+    IF sel==2 THEN MA_MainEng(); END;
+    IF sel==3 THEN
+      MA_round:=CHOOSE("Sig figs",{3,6,12},2);
+      MA_sep:=1-MA_sep;
+    END;
+  END;
+END;

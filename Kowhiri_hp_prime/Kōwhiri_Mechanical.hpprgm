@@ -1,0 +1,233 @@
+EXPORT Koowhiri_MechProps();
+
+LOCAL mp_family:=1;
+LOCAL mp_from:="";
+LOCAL mp_to:="";
+LOCAL mp_value:=1;
+LOCAL mp_round:=6;
+LOCAL mp_sep:=0;
+
+LOCAL mp_families;
+LOCAL mp_names;
+
+EXPORT MP_Init()
+BEGIN
+  mp_families:={
+    {"Force",{"N",1},{"kN",1000},{"lbf",4.4482216152605}},
+    {"Torque",{"N·mm",0.001},{"N·m",1},{"kN·m",1000},{"ft·lbf",1.3558179483314},{"in·lbf",0.113}},
+    {"Stress",{"Pa",1},{"kPa",1000},{"MPa",1000000},{"GPa",1000000000},{"bar",100000},{"psi",6894.757293168}},
+    {"Strain",{"mm/m",0.001},{"μm/m",1E-6},{"%",0.01},{"unitless",1}},
+    {"Modulus",{"MPa",1000000},{"GPa",1000000000},{"psi",6894.757293168},{"ksi",6894757.293168}},
+    {"Density",{"kg/m^3",1},{"g/cm^3",1000},{"lb/ft^3",16.018463073}},
+    {"MomentI",{"mm^4",1E-12},{"cm^4",1E-8},{"m^4",1},{"in^4",4.162314E-7}}
+  };
+  mp_names:={};
+  LOCAL i;
+  FOR i FROM 1 TO SIZE(mp_families) DO
+    mp_names:=CONCAT(mp_names,{mp_families(i,1)});
+  END;
+END;
+
+MP_UnitsList(idx)
+BEGIN
+  LOCAL list:=mp_families(idx);
+  LOCAL units:={};
+  LOCAL i;
+  FOR i FROM 2 TO SIZE(list) DO
+    units:=CONCAT(units,{list(i,1)});
+  END;
+  RETURN units;
+END;
+
+MP_Factor(idx,u$)
+BEGIN
+  LOCAL list:=mp_families(idx);
+  LOCAL i;
+  FOR i FROM 2 TO SIZE(list) DO
+    IF list(i,1)==u$ THEN
+      RETURN list(i,2);
+    END;
+  END;
+  RETURN 0;
+END;
+
+MP_Convert(val,from$,to$,family)
+BEGIN
+  LOCAL f_from:=MP_Factor(family,from$);
+  LOCAL f_to:=MP_Factor(family,to$);
+  IF f_from==0 OR f_to==0 THEN RETURN 0; END;
+  RETURN val * f_from / f_to;
+END;
+
+MP_RoundSig(x,n)
+BEGIN
+  IF x==0 THEN RETURN 0; END;
+  LOCAL e:=IP(LOG10(ABS(x)));
+  LOCAL fac:=10^(n-1-e);
+  RETURN ROUND(x*fac)/fac;
+END;
+
+MP_Format(x)
+BEGIN
+  LOCAL r:=MP_RoundSig(x,mp_round);
+  LOCAL s:=STRING(r);
+  IF mp_sep THEN
+    LOCAL pos:=POS(s,".");
+    LOCAL int$,dec$;
+    IF pos==0 THEN int$:=s; dec$:=""; ELSE int$:=LEFT(s,pos-1); dec$:=MID(s,pos); END;
+    LOCAL ex_pos:=POS(int$,"E");
+    LOCAL ex$;
+    IF ex_pos≠0 THEN ex$:=MID(int$,ex_pos); int$:=LEFT(int$,ex_pos-1); ELSE ex$:=""; END;
+    LOCAL out:="";
+    LOCAL count:=0;
+    LOCAL i;
+    FOR i FROM LENGTH(int$) DOWNTO 1 DO
+      out:=MID(int$,i,1)+out;
+      count:=count+1;
+      IF count MOD 3 == 0 AND i>1 THEN out:=","+out; END;
+    END;
+    s:=out+dec$+ex$;
+  END;
+  RETURN s;
+END;
+
+MP_SelfTest()
+BEGIN
+  LOCAL fails:="";
+  LOCAL r:=MP_Convert(200,"MPa","psi",3);
+  IF ABS(r-29007.6)>10 THEN fails:=fails+"Stress conversion failed:"+STRING(r)+"\n"; END;
+  r:=MP_Convert(1,"N·m","in·lbf",2);
+  IF ABS(r-8.85075)>0.01 THEN fails:=fails+"Torque conversion failed:"+STRING(r)+"\n"; END;
+  LOCAL F:=100;
+  LOCAL L:=0.5;
+  LOCAL E:=200E9;
+  LOCAL I:=1.6E-8;
+  LOCAL delta:=F*L^3/(3*E*I);
+  IF ABS(delta-0.0078125)>1E-4 THEN fails:=fails+"Deflection failed:"+STRING(delta)+"\n"; END;
+  IF fails=="" THEN RETURN "PASS"; END;
+  RETURN fails;
+END;
+
+MP_Axial()
+BEGIN
+  LOCAL F,L,A,E,delta;
+  INPUT(F,"Force N");
+  INPUT(L,"Length m");
+  INPUT(A,"Area m^2");
+  INPUT(E,"Modulus Pa");
+  delta:=F*L/(A*E);
+  MSGBOX("δ = "+MP_Format(delta)+" m");
+END;
+
+MP_Bending()
+BEGIN
+  LOCAL shapes:={"Rectangular","Circular"};
+  LOCAL sel:=CHOOSE("Section",shapes);
+  IF sel==0 THEN RETURN; END;
+  LOCAL M,b,h,d,c,I,σ;
+  INPUT(M,"Moment (N·m)");
+  IF sel==1 THEN
+    INPUT(b,"Width (m)");
+    INPUT(h,"Height (m)");
+    c:=h/2;
+    I:=b*h^3/12;
+  ELSEIF sel==2 THEN
+    INPUT(d,"Diameter (m)");
+    c:=d/2;
+    I:=π*d^4/64;
+  END;
+  σ:=M*c/I;
+  MSGBOX("σ = "+MP_Format(σ)+" Pa");
+END;
+
+MP_Shear()
+BEGIN
+  LOCAL V,b,h,I,Q,τ;
+  INPUT(V,"Shear force (N)");
+  INPUT(b,"Width (m)");
+  INPUT(h,"Height (m)");
+  I:=b*h^3/12;
+  Q:=b*h^2/8;
+  τ:=V*Q/(I*b);
+  MSGBOX("τ = "+MP_Format(τ)+" Pa");
+END;
+
+MP_Deflect()
+BEGIN
+  LOCAL cases:={"Cantilever","Simply supported"};
+  LOCAL sel:=CHOOSE("Deflection case",cases);
+  IF sel==0 THEN RETURN; END;
+  LOCAL shapes:={"Rectangular","Circular"};
+  LOCAL sec:=CHOOSE("Section",shapes);
+  LOCAL F,L,E,b,h,d,I,δ;
+  INPUT(F,"Force (N)");
+  INPUT(L,"Length (m)");
+  INPUT(E,"Modulus (Pa)");
+  IF sec==1 THEN
+    INPUT(b,"Width (m)");
+    INPUT(h,"Height (m)");
+    I:=b*h^3/12;
+  ELSEIF sec==2 THEN
+    INPUT(d,"Diameter (m)");
+    I:=π*d^4/64;
+  END;
+  IF sel==1 THEN
+    δ:=F*L^3/(3*E*I);
+  ELSE
+    δ:=F*L^3/(48*E*I);
+  END;
+  MSGBOX("δ = "+MP_Format(δ)+" m");
+END;
+
+MP_Options()
+BEGIN
+  LOCAL opts:={"Round 3","Round 6","Round full","Toggle sep","Self-test"};
+  LOCAL sel:=CHOOSE("Options",opts);
+  IF sel==1 THEN mp_round:=3;
+  ELSEIF sel==2 THEN mp_round:=6;
+  ELSEIF sel==3 THEN mp_round:=12;
+  ELSEIF sel==4 THEN mp_sep:=1-mp_sep;
+  ELSEIF sel==5 THEN MSGBOX(MP_SelfTest());
+  END;
+END;
+
+MP_Main()
+BEGIN
+  mp_family:=1;
+  LOCAL list:=MP_UnitsList(mp_family);
+  mp_from:=list(1);
+  mp_to:=list(2);
+  mp_value:=1;
+  WHILE 1 DO
+    PRINT();
+    PRINT("Kōwhiri MechProps");
+    PRINT("Prop: "+mp_names(mp_family));
+    PRINT("From: "+mp_from+"  To: "+mp_to);
+    PRINT("Value: "+STRING(mp_value));
+    PRINT("Result: "+MP_Format(MP_Convert(mp_value,mp_from,mp_to,mp_family)));
+    PRINT("F1:Conv F2:Axial F3:Bend F4:Shear F5:Deflect F6:Opt");
+    LOCAL k:=WAIT(0);
+    IF k==1 THEN
+      mp_family:=CHOOSE("Property",mp_names,mp_family);
+      list:=MP_UnitsList(mp_family);
+      mp_from:=list(1);
+      mp_to:=list(2);
+    ELSEIF k==2 THEN
+      MP_Axial();
+    ELSEIF k==3 THEN
+      MP_Bending();
+    ELSEIF k==4 THEN
+      MP_Shear();
+    ELSEIF k==5 THEN
+      MP_Deflect();
+    ELSEIF k==6 THEN
+      MP_Options();
+    END;
+  END;
+END;
+
+EXPORT START()
+BEGIN
+  MP_Init();
+  MP_Main();
+END;

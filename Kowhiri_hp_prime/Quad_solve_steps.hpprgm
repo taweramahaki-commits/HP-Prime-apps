@@ -1,0 +1,56 @@
+export Quad_solve_a, Quad_solve_b, Quad_solve_c;
+
+export Quad_solve_steps()
+begin
+
+
+
+  print(); freeze;
+  print("*** Quadratic Solver with Steps ***");
+
+
+  input(
+    { Quad_solve_a, Quad_solve_b, Quad_solve_c },
+    "Quadratic Equation",
+    { "Coefficient a:", "Coefficient b:", "Coefficient c:" },
+    { "Enter a (not 0)", "Enter b", "Enter c" }
+  );
+
+  print("");
+  print("Standard form: a*x^2 + b*x + c = 0");
+  print("a=" + string(Quad_solve_a) + ", b=" + string(Quad_solve_b) + ", c=" + string(Quad_solve_c));
+
+
+  local D, x1, x2, r1, i1, r2, i2;
+  D := Quad_solve_b^2 - 4*Quad_solve_a*Quad_solve_c;
+
+  print("");
+  print("Discriminant D = b^2 - 4ac");
+  print("D = " + string(Quad_solve_b) + "^2 - 4*" + string(Quad_solve_a) + "*" + string(Quad_solve_c));
+  print("D = " + string(D));
+
+  if D > 0 then
+    print("Two distinct real roots:");
+    x1 := (-Quad_solve_b + sqrt(D)) / (2*Quad_solve_a);
+    x2 := (-Quad_solve_b - sqrt(D)) / (2*Quad_solve_a);
+    print("x1 = (-b + sqrt(D)) / (2a) = " + string(x1));
+    print("x2 = (-b - sqrt(D)) / (2a) = " + string(x2));
+  else
+    if D == 0 then
+      print("One real repeated root:");
+      x1 := (-Quad_solve_b) / (2*Quad_solve_a);
+      print("x = -b / (2a) = " + string(x1));
+    else
+      print("Two complex roots:");
+      r1 := -Quad_solve_b / (2*Quad_solve_a);
+      i1 := sqrt(-D) / (2*Quad_solve_a);
+      r2 := r1;
+      i2 := -i1;
+      print("x1 = " + string(r1) + " + " + string(i1) + "*i");
+      print("x2 = " + string(r2) + " - " + string(i2) + "*i");
+    end;
+  end;
+
+  print("");
+  print("*** Done ***");
+end;
